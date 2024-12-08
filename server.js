@@ -1,27 +1,26 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const fs = require('fs');
+const cors = require('cors');
+
+
+const adventureRoutes = require('./routes/adventures.route');
+const goalRoutes = require('./routes/daily.route');
+const activityRoutes = require('./routes/activities.route');
+const relationshipRoutes = require('./routes/relationships.route');
+
+
 const app = express();
 
+app.use(cors({ origin: 'http://localhost:3000' }));
 app.use(bodyParser.json());
 
-const DATA_FILE = './data.json';
+// Use the routes
+app.use('/adventures', adventureRoutes);
+app.use('/goals', goalRoutes);
+app.use('/activities', activityRoutes);
+app.use('/relationships', relationshipRoutes);
 
-// Read data
-app.get('/data', (req, res) => {
-    fs.readFile(DATA_FILE, 'utf8', (err, data) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(JSON.parse(data));
-    });
+const PORT = 3001;
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
 });
-
-// Write data
-app.post('/data', (req, res) => {
-    const newData = req.body;
-    fs.writeFile(DATA_FILE, JSON.stringify(newData, null, 2), (err) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: 'Data saved!' });
-    });
-});
-
-app.listen(3001, () => console.log('Server running on port 3001'));
