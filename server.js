@@ -2,13 +2,11 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 
-
 const adventureRoutes = require('./routes/adventures.route');
 const goalRoutes = require('./routes/daily.route');
 const activityRoutes = require('./routes/activities.route');
 const relationshipRoutes = require('./routes/relationships.route');
 const timelineRoutes = require('./routes/timeline.route');
-
 
 const app = express();
 
