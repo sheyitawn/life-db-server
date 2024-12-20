@@ -45,4 +45,39 @@ router.post('/daily-goal', (req, res) => {
     res.json({ message: `Goal for ${date} has been set.`, goal: { date, goal } });
 });
 
+router.post('/toggle-late-day', (req, res) => {
+    const { date } = req.body;
+
+    if (!date) {
+        return res.status(400).json({ error: 'Date is required.' });
+    }
+
+    const goals = loadGoals();
+    const goalIndex = goals.findIndex((g) => g.date === date);
+
+    if (goalIndex !== -1) {
+        // Get the current time in HH:MM format
+        const currentTime = new Date();
+        const currentTimeFormatted = `${currentTime.getHours().toString().padStart(2, '0')}:${currentTime.getMinutes().toString().padStart(2, '0')}`;
+
+        // Toggle the late-day status
+        const isCurrentlyLateDay = goals[goalIndex]["late-day"] !== null;
+        goals[goalIndex]["late-day"] = isCurrentlyLateDay ? null : currentTimeFormatted;
+
+        // Save the updated goals
+        saveGoals(goals);
+
+        res.json({
+            message: `Late-day status for ${date} has been updated.`,
+            goal: goals[goalIndex],
+        });
+    } else {
+        res.status(404).json({ error: `No goal found for ${date}.` });
+    }
+});
+
+
+
+
+
 module.exports = router;
