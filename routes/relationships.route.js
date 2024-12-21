@@ -53,7 +53,10 @@ router.post('/relationships/:id', (req, res) => {
     if (action === 'checked-in') {
         relationships[relationshipIndex].last_checkin = new Date().toISOString();
     } else if (action === 'skip') {
-        // Optional: Add logic for skip if needed
+        const currentCheckinDate = new Date(relationships[relationshipIndex].last_checkin || new Date());
+        const newCheckinDate = new Date(currentCheckinDate);
+        newCheckinDate.setDate(newCheckinDate.getDate() + 1); // Add 1 day
+        relationships[relationshipIndex].last_checkin = newCheckinDate.toISOString();
     }
 
     saveRelationships(relationships);
