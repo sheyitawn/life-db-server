@@ -16,7 +16,14 @@ const calculateProgress = (lastCheckin, frequency) => {
     const now = new Date();
     const lastCheckinDate = new Date(lastCheckin);
     const daysSinceCheckin = Math.ceil((now - lastCheckinDate) / (1000 * 60 * 60 * 24));
-    const frequencyDays = frequency === 'weekly' ? 7 : 1;
+    const frequencyDays = 
+        frequency === 'weekly' ? 7 
+        :frequency === 'bi-weekly' ? 14 
+        :frequency === 'monthly' ? 30
+        :frequency === 'bi-monthly' ? 60 
+        :frequency === 'half-yearly' ? 182 
+        :frequency === 'yearly' ? 365
+        : 1;
 
     const progress = Math.min(daysSinceCheckin / frequencyDays, 1); // Cap at 100%
     const daysLeft = Math.max(frequencyDays - daysSinceCheckin, 0);
