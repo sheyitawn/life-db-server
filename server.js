@@ -7,6 +7,8 @@ const goalRoutes = require('./routes/daily.route');
 const activityRoutes = require('./routes/activities.route');
 const relationshipRoutes = require('./routes/relationships.route');
 const timelineRoutes = require('./routes/timeline.route');
+const calendarRoutes = require('./routes/calendar.route');
+const habitsRoutes = require('./routes/habits.route');
 
 const app = express();
 
@@ -19,6 +21,9 @@ app.use('/goals', goalRoutes);
 app.use('/activities', activityRoutes);
 app.use('/relationships', relationshipRoutes);
 app.use('/timeline', timelineRoutes);
+app.use('/calendar', calendarRoutes);
+app.use('/habits', habitsRoutes);
+
 
 const PORT = 3001;
 app.listen(PORT, () => {
