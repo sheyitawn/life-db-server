@@ -31,7 +31,7 @@ router.get('/oauth2callback', async (req, res) => {
   try {
     const { tokens } = await oAuth2Client.getToken(code);
     oAuth2Client.setCredentials(tokens);
-    fs.writeFileSync('data/tokens.json', JSON.stringify(tokens));
+    fs.writeFileSync('tokens.json', JSON.stringify(tokens));
     res.send('Login successful! You can now close this tab.');
   } catch (err) {
     console.error('Error during OAuth callback:', err);
