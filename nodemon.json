@@ -1,0 +1,5 @@
+{
+  "watch": ["routes", "utils", "server.js"],
+  "ignore": ["../life-db", "../life-db/src", "../life-db/public", "*.jsx", "*.css", "*.ts", "*.tsx"],
+  "ext": "js,json"
+}
