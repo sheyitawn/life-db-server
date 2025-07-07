@@ -1,110 +1,102 @@
 const express = require('express');
-const fs = require('fs');
 const router = express.Router();
+const db = require('../firebase');
 
-const relationshipsData = './data/relationships.json';
-
-// Utility functions
-const loadRelationships = () => JSON.parse(fs.readFileSync(relationshipsData, 'utf8'));
-const saveRelationships = (relationships) =>
-    fs.writeFileSync(relationshipsData, JSON.stringify(relationships, null, 2));
-
+// Utility
 const parseDate = (dateString) => new Date(dateString);
 
-// Calculate progress for each relationship
 const calculateProgress = (lastCheckin, frequency) => {
     const now = new Date();
     const lastCheckinDate = new Date(lastCheckin);
     const daysSinceCheckin = Math.ceil((now - lastCheckinDate) / (1000 * 60 * 60 * 24));
-    const frequencyDays = 
-        frequency === 'weekly' ? 7 
-        :frequency === 'bi-weekly' ? 14 
-        :frequency === 'monthly' ? 30
-        :frequency === 'bi-monthly' ? 60 
-        :frequency === 'half-yearly' ? 182 
-        :frequency === 'yearly' ? 365
-        : 1;
+    const frequencyDays =
+        frequency === 'weekly' ? 7
+            : frequency === 'bi-weekly' ? 14
+                : frequency === 'monthly' ? 30
+                    : frequency === 'bi-monthly' ? 60
+                        : frequency === 'half-yearly' ? 182
+                            : frequency === 'yearly' ? 365
+                                : 1;
 
-    const progress = Math.min(daysSinceCheckin / frequencyDays, 1); // Cap at 100%
+    const progress = Math.min(daysSinceCheckin / frequencyDays, 1);
     const daysLeft = Math.max(frequencyDays - daysSinceCheckin, 0);
     const overdueDays = daysSinceCheckin > frequencyDays ? daysSinceCheckin - frequencyDays : 0;
 
     return { progress, daysLeft, overdue: daysSinceCheckin >= frequencyDays, overdueDays };
 };
 
+// GET /relationships
+router.get('/relationships', async (req, res) => {
+    try {
+        const snapshot = await db.ref('relationships').once('value');
+        const data = snapshot.val() || [];
+        const relationships = Object.values(data);
 
-// Get relationships with progress data (only if they have a check-in date)
-router.get('/relationships', (req, res) => {
-    const relationships = loadRelationships();
+        const withProgress = relationships
+            .filter(r => r.last_checkin)
+            .map(r => {
+                const { progress, daysLeft, overdue } = calculateProgress(r.last_checkin, r.checkin_freq);
+                return { ...r, progress, daysLeft, overdue };
+            });
 
-    const relationshipsWithProgress = relationships
-        .filter((relationship) => relationship.last_checkin) // Only include those with a check-in date
-        .map((relationship) => {
-            const { progress, daysLeft, overdue } = calculateProgress(
-                relationship.last_checkin,
-                relationship.checkin_freq
-            );
-            return { ...relationship, progress, daysLeft, overdue };
-        });
-
-    res.json(relationshipsWithProgress);
+        res.json(withProgress);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Error loading relationships' });
+    }
 });
 
-
-// Update a relationship (e.g., mark check-in as complete or skip)
-router.post('/relationships/:id', (req, res) => {
-    const relationships = loadRelationships();
+// POST /relationships/:id
+router.post('/relationships/:id', async (req, res) => {
     const { id } = req.params;
     const { action } = req.body;
+    try {
+        const ref = db.ref(`relationships/${id}`);
+        const snapshot = await ref.once('value');
+        const rel = snapshot.val();
 
-    const relationshipIndex = relationships.findIndex(rel => rel.id === parseInt(id, 10));
-    if (relationshipIndex === -1) {
-        return res.status(404).json({ error: 'Relationship not found' });
-    }
+        if (!rel) return res.status(404).json({ error: 'Relationship not found' });
 
-    const rel = relationships[relationshipIndex];
-
-    if (action === 'check-in') {
-        rel.last_checkin = new Date().toISOString();
-    } else if (action === 'skip') {
-        const baseDate = new Date(rel.last_checkin || Date.now());
-        if (isNaN(baseDate.getTime())) {
-            return res.status(400).json({ error: 'Invalid last_checkin date' });
+        if (action === 'check-in') {
+            rel.last_checkin = new Date().toISOString();
+        } else if (action === 'skip') {
+            const baseDate = new Date(rel.last_checkin || Date.now());
+            if (isNaN(baseDate.getTime())) return res.status(400).json({ error: 'Invalid last_checkin date' });
+            baseDate.setDate(baseDate.getDate() + 1);
+            rel.last_checkin = baseDate.toISOString();
+        } else {
+            return res.status(400).json({ error: 'Invalid action' });
         }
-        const newCheckinDate = new Date(baseDate);
-        newCheckinDate.setDate(newCheckinDate.getDate() + 1);
-        rel.last_checkin = newCheckinDate.toISOString();
-    } else {
-        return res.status(400).json({ error: 'Invalid action' });
+
+        await ref.update(rel);
+        res.json({ message: 'Relationship updated successfully', relationship: rel });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to update relationship' });
     }
-
-    saveRelationships(relationships);
-    res.json({ message: 'Relationship updated successfully', relationship: rel });
 });
 
+// GET /most-due
+router.get('/most-due', async (req, res) => {
+    try {
+        const snapshot = await db.ref('relationships').once('value');
+        const data = snapshot.val() || [];
+        const relationships = Object.values(data);
 
-// Get the 3 most due relationships
-router.get('/most-due', (req, res) => {
-    const relationships = loadRelationships();
+        const withProgress = relationships.map(r => {
+            const { progress, daysLeft, overdue, overdueDays } = calculateProgress(r.last_checkin, r.checkin_freq);
+            return { ...r, progress, daysLeft, overdue, overdueDays };
+        });
 
-    // Calculate progress and overdue status
-    const relationshipsWithProgress = relationships.map((relationship) => {
-        const { progress, daysLeft, overdue, overdueDays } = calculateProgress(
-            relationship.last_checkin,
-            relationship.checkin_freq
-        );
-        return { ...relationship, progress, daysLeft, overdue, overdueDays };
-    });
-
-    // Sort by daysLeft (ascending) and slice top 3
-    const mostDueRelationships = relationshipsWithProgress
-        .sort((a, b) => a.daysLeft - b.daysLeft)
-        .slice(0, 3);
-
-    res.json(mostDueRelationships);
+        const mostDue = withProgress.sort((a, b) => a.daysLeft - b.daysLeft).slice(0, 3);
+        res.json(mostDue);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Error loading due relationships' });
+    }
 });
 
-// Utility to get next birthday date
+// Utility: getNextBirthday
 const getNextBirthday = (birthdayStr) => {
     const [day, month] = birthdayStr.split('-').map(Number);
     const now = new Date();
@@ -118,56 +110,64 @@ const getNextBirthday = (birthdayStr) => {
     return nextBirthday;
 };
 
-// GET /birthdays/upcoming – birthdays within 14 days
-router.get('/birthdays/upcoming', (req, res) => {
-    const relationships = loadRelationships();
-    const today = new Date();
-    const twoWeeksFromNow = new Date();
-    twoWeeksFromNow.setDate(today.getDate() + 14);
+// GET /birthdays/upcoming
+router.get('/birthdays/upcoming', async (req, res) => {
+    try {
+        const snapshot = await db.ref('relationships').once('value');
+        const data = snapshot.val() || [];
+        const relationships = Object.values(data);
 
-    const upcoming = relationships
-        .filter(rel => rel.birthday)
-        .map(rel => {
-            const nextBirthday = getNextBirthday(rel.birthday);
-            const daysAway = Math.ceil((nextBirthday - today) / (1000 * 60 * 60 * 24));
+        const today = new Date();
+        const twoWeeksFromNow = new Date();
+        twoWeeksFromNow.setDate(today.getDate() + 14);
 
-            return {
-                id: rel.id,
-                name: rel.name,
-                birthday: rel.birthday,
-                daysAway,
-                present: rel.present ?? false,
-                got_present: rel.got_present ?? false,
-            };
-        })
-        .filter(rel => rel.daysAway <= 14)
-        .sort((a, b) => a.daysAway - b.daysAway);
+        const upcoming = relationships
+            .filter(rel => rel.birthday)
+            .map(rel => {
+                const nextBirthday = getNextBirthday(rel.birthday);
+                const daysAway = Math.ceil((nextBirthday - today) / (1000 * 60 * 60 * 24));
 
-    res.json(upcoming);
+                return {
+                    id: rel.id,
+                    name: rel.name,
+                    birthday: rel.birthday,
+                    daysAway,
+                    present: rel.present ?? false,
+                    got_present: rel.got_present ?? false,
+                };
+            })
+            .filter(rel => rel.daysAway <= 14)
+            .sort((a, b) => a.daysAway - b.daysAway);
+
+        res.json(upcoming);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch upcoming birthdays' });
+    }
 });
 
-// POST /birthdays/:id/present – mark got_present true/false
-router.post('/birthdays/:id/present', (req, res) => {
+// POST /birthdays/:id/present
+router.post('/birthdays/:id/present', async (req, res) => {
     const { id } = req.params;
     const { got_present } = req.body;
-    const relationships = loadRelationships();
 
-    const index = relationships.findIndex(rel => rel.id === parseInt(id, 10));
-    if (index === -1) {
-        return res.status(404).json({ error: 'Relationship not found' });
+    try {
+        const ref = db.ref(`relationships/${id}`);
+        const snapshot = await ref.once('value');
+        const rel = snapshot.val();
+
+        if (!rel) return res.status(404).json({ error: 'Relationship not found' });
+
+        if (!rel.present) return res.status(400).json({ error: `${rel.name} is not expecting a present.` });
+
+        rel.got_present = Boolean(got_present);
+        await ref.update(rel);
+
+        res.json({ message: `'got_present' updated for ${rel.name}`, got_present: rel.got_present });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to update present status' });
     }
-
-    const relationship = relationships[index];
-
-    if (!relationship.present) {
-        return res.status(400).json({ error: `${relationship.name} is not expecting a present.` });
-    }
-
-    relationship.got_present = Boolean(got_present);
-    saveRelationships(relationships);
-
-    res.json({ message: `'got_present' updated for ${relationship.name}`, got_present: relationship.got_present });
 });
-
 
 module.exports = router;
