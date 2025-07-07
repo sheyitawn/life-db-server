@@ -1,30 +1,6 @@
 const express = require('express');
-const fs = require('fs');
 const router = express.Router();
-
-const weightFile = './data/weight.json';
-const habitsFile = './data/habits.json';
-
-// === Utility functions ===
-const loadWeights = () => {
-    if (!fs.existsSync(weightFile)) return [];
-    const data = fs.readFileSync(weightFile, 'utf8');
-    return data.trim() ? JSON.parse(data) : [];
-};
-
-const saveWeights = (weights) => {
-    fs.writeFileSync(weightFile, JSON.stringify(weights, null, 2));
-};
-
-const loadHabits = () => {
-    if (!fs.existsSync(habitsFile)) return [];
-    const data = fs.readFileSync(habitsFile, 'utf8');
-    return data.trim() ? JSON.parse(data) : [];
-};
-
-const saveHabits = (habits) => {
-    fs.writeFileSync(habitsFile, JSON.stringify(habits, null, 2));
-};
+const db = require('../firebase'); // path to your firebase.js file
 
 const defaultHabits = {
     read: false,
@@ -35,7 +11,7 @@ const defaultHabits = {
 };
 
 // === POST /weighin ===
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
     const { weight } = req.body;
 
     if (typeof weight !== 'number' || weight <= 0) {
@@ -43,41 +19,64 @@ router.post('/', (req, res) => {
     }
 
     const today = new Date().toISOString().split('T')[0];
-    const weights = loadWeights();
 
-    // Check if today's entry already exists
-    const existingIndex = weights.findIndex(w => w.date === today);
+    try {
+        const weightsRef = db.ref('weights');
+        const habitsRef = db.ref('habits');
 
-    if (existingIndex !== -1) {
-        // Overwrite existing weight
-        weights[existingIndex].weight = weight;
-    } else {
-        // Add new entry
-        weights.push({ date: today, weight });
+        // Get existing weights
+        const snapshot = await weightsRef.once('value');
+        const weights = snapshot.val() || [];
+
+        // Check if today's entry exists
+        const existingIndex = weights.findIndex(w => w.date === today);
+        if (existingIndex !== -1) {
+            weights[existingIndex].weight = weight;
+        } else {
+            weights.push({ date: today, weight });
+        }
+
+        await weightsRef.set(weights);
+
+        // Get/update habits
+        const habitsSnap = await habitsRef.once('value');
+        const habits = habitsSnap.val() || [];
+
+        let todayEntry = habits.find(h => h.date === today);
+        if (!todayEntry) {
+            todayEntry = { date: today, habits: { ...defaultHabits } };
+            habits.push(todayEntry);
+        }
+
+        todayEntry.habits['weigh-in'] = true;
+
+        // Replace or insert
+        const index = habits.findIndex(h => h.date === today);
+        if (index !== -1) {
+            habits[index] = todayEntry;
+        } else {
+            habits.push(todayEntry);
+        }
+
+        await habitsRef.set(habits);
+
+        res.json({ message: `Weighed in at ${weight}kg`, date: today });
+    } catch (err) {
+        console.error('Firebase Error:', err);
+        res.status(500).json({ error: 'Internal server error' });
     }
-
-    saveWeights(weights);
-
-    // Update habits
-    const habits = loadHabits();
-    let todayEntry = habits.find(h => h.date === today);
-
-    if (!todayEntry) {
-        todayEntry = { date: today, habits: { ...defaultHabits } };
-        habits.push(todayEntry);
-    }
-
-    todayEntry.habits['weigh-in'] = true;
-    saveHabits(habits);
-
-    res.json({ message: `Weighed in at ${weight}kg`, date: today });
 });
 
-
 // === GET /weighin ===
-router.get('/', (req, res) => {
-    const weights = loadWeights();
-    res.json(weights);
+router.get('/', async (req, res) => {
+    try {
+        const snapshot = await db.ref('weights').once('value');
+        const weights = snapshot.val() || [];
+        res.json(weights);
+    } catch (err) {
+        console.error('Firebase Error:', err);
+        res.status(500).json({ error: 'Failed to load weight data' });
+    }
 });
 
 module.exports = router;

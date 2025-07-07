@@ -1,208 +1,188 @@
 const express = require('express');
-const fs = require('fs');
 const router = express.Router();
+const db = require('../firebase'); // Adjust the path if needed
 
-const activitiesData = './data/activities.json';
-const weeklyActivityData = './data/weeklyActivity.json';
-const habitsFile = './data/habits.json';
-
-const loadHabits = () => JSON.parse(fs.readFileSync(habitsFile, 'utf8'));
-const saveHabits = (habits) => fs.writeFileSync(habitsFile, JSON.stringify(habits, null, 2));
+// === Firebase paths ===
+const HABITS_PATH = 'habits';
+const ACTIVITIES_PATH = 'activities';
+const WEEKLY_ACTIVITY_PATH = 'weeklyActivity';
+const EXERCISE_PLAN_PATH = 'exercisePlan';
+const WORKOUT_LOG_PATH = 'workoutLog';
 
 const defaultHabits = { read: false, meditate: false, workout: false, journal: false };
 
-
-// Utility Functions
-const loadActivities = () => JSON.parse(fs.readFileSync(activitiesData, 'utf8'));
-const saveActivities = (data) => fs.writeFileSync(activitiesData, JSON.stringify(data, null, 2));
-
-const loadWeeklyActivity = () => JSON.parse(fs.readFileSync(weeklyActivityData, 'utf8'));
-const saveWeeklyActivity = (data) => fs.writeFileSync(weeklyActivityData, JSON.stringify(data, null, 2));
+const getStartOfWeek = (date = new Date()) => {
+  const d = new Date(date);
+  d.setDate(d.getDate() - d.getDay()); // Sunday
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString().split('T')[0];
+};
 
 const isThisWeek = (date) => {
-    const now = new Date();
-    const selectedDate = new Date(date);
-    const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay())); // Sunday
-    const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(endOfWeek.getDate() + 6); // Saturday
-    return selectedDate >= startOfWeek && selectedDate <= endOfWeek;
+  const now = new Date();
+  const selectedDate = new Date(date);
+  const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(endOfWeek.getDate() + 6);
+  return selectedDate >= startOfWeek && selectedDate <= endOfWeek;
 };
 
-// Select a random weekly activity
-const selectRandomWeeklyActivity = () => {
-    const activities = loadActivities();
-    const random = activities[Math.floor(Math.random() * activities.length)];
-
-    const newWeekly = {
-        activityId: random.id,
-        selectedAt: new Date().toISOString(),
-        done: false
-    };
-
-    saveWeeklyActivity(newWeekly);
-    return { ...random, done: false };
+// === Load all activities and select a new one randomly ===
+const selectRandomWeeklyActivity = async () => {
+  const snapshot = await db.ref(ACTIVITIES_PATH).once('value');
+  const activities = Object.values(snapshot.val() || []);
+  const random = activities[Math.floor(Math.random() * activities.length)];
+  const newWeekly = {
+    activityId: random.id,
+    selectedAt: new Date().toISOString(),
+    done: false,
+  };
+  await db.ref(WEEKLY_ACTIVITY_PATH).set(newWeekly);
+  return { ...random, done: false };
 };
 
-const workoutLogFile = './data/workoutLog.json';
+// === GET /weekly ===
+router.get('/weekly', async (req, res) => {
+  try {
+    const [weeklySnap, activitiesSnap] = await Promise.all([
+      db.ref(WEEKLY_ACTIVITY_PATH).once('value'),
+      db.ref(ACTIVITIES_PATH).once('value'),
+    ]);
 
-const loadWorkoutLog = () => {
-    if (!fs.existsSync(workoutLogFile)) return [];
-
-    const data = fs.readFileSync(workoutLogFile, 'utf8');
-    if (!data.trim()) return []; // empty file
-
-    try {
-        return JSON.parse(data);
-    } catch (err) {
-        console.error('❌ Failed to parse workoutLog.json:', err.message);
-        return []; // fallback to empty
-    }
-};
-
-
-const saveWorkoutLog = (data) => {
-    fs.writeFileSync(workoutLogFile, JSON.stringify(data, null, 2));
-};
-
-const getStartOfWeek = (date = new Date()) => {
-    const d = new Date(date);
-    d.setDate(d.getDate() - d.getDay()); // Sunday
-    d.setHours(0, 0, 0, 0);
-    return d.toISOString().split('T')[0];
-};
-
-
-// GET: Weekly activity (reuses current if it's still this week)
-router.get('/weekly', (req, res) => {
-    let weekly;
-    try {
-        weekly = loadWeeklyActivity();
-    } catch {
-        weekly = null;
-    }
+    let weekly = weeklySnap.val();
+    const activities = Object.values(activitiesSnap.val() || []);
 
     if (!weekly || !isThisWeek(weekly.selectedAt)) {
-        const newActivity = selectRandomWeeklyActivity();
-        return res.json({ message: 'New activity selected for the week!', activity: newActivity });
+      const newActivity = await selectRandomWeeklyActivity();
+      return res.json({ message: 'New activity selected for the week!', activity: newActivity });
     }
 
-    const activities = loadActivities();
-    const current = activities.find(a => a.id === weekly.activityId);
+    const current = activities.find((a) => a.id === weekly.activityId);
     if (!current) {
-        return res.status(404).json({ error: 'Activity not found in list.' });
+      return res.status(404).json({ error: 'Activity not found.' });
     }
 
     res.json({ activity: { ...current, done: weekly.done } });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load weekly activity.' });
+  }
 });
 
-// POST: Manually refresh the weekly activity
-router.post('/weekly/refresh', (req, res) => {
-    const newActivity = selectRandomWeeklyActivity();
-    res.json({ message: 'Weekly activity manually refreshed!', activity: newActivity });
+// === POST /weekly/refresh ===
+router.post('/weekly/refresh', async (req, res) => {
+  const newActivity = await selectRandomWeeklyActivity();
+  res.json({ message: 'Weekly activity manually refreshed!', activity: newActivity });
 });
 
-// POST: Mark weekly activity as done
-router.post('/weekly/complete', (req, res) => {
-    let weekly = loadWeeklyActivity();
-    weekly.done = true;
-    weekly.completedAt = new Date().toISOString();
-    saveWeeklyActivity(weekly);
+// === POST /weekly/complete ===
+router.post('/weekly/complete', async (req, res) => {
+  const weeklySnap = await db.ref(WEEKLY_ACTIVITY_PATH).once('value');
+  const weekly = weeklySnap.val();
 
-    // Optionally update lastDone in activities list too
-    const activities = loadActivities();
-    const activity = activities.find(a => a.id === weekly.activityId);
-    if (activity) {
-        activity.lastDone = new Date().toISOString();
-        activity.status = 'done';
-        saveActivities(activities);
+  if (!weekly) return res.status(400).json({ error: 'No weekly activity found.' });
+
+  weekly.done = true;
+  weekly.completedAt = new Date().toISOString();
+  await db.ref(WEEKLY_ACTIVITY_PATH).set(weekly);
+
+  // Update activity
+  const activitiesSnap = await db.ref(ACTIVITIES_PATH).once('value');
+  const activities = activitiesSnap.val() || {};
+  const id = weekly.activityId;
+
+  if (activities[id]) {
+    activities[id].lastDone = new Date().toISOString();
+    activities[id].status = 'done';
+    await db.ref(`${ACTIVITIES_PATH}/${id}`).set(activities[id]);
+  }
+
+  res.json({ message: 'Weekly activity marked as done!', activityId: weekly.activityId });
+});
+
+// === GET /exercise/today ===
+router.get('/exercise/today', async (req, res) => {
+  const planSnap = await db.ref(EXERCISE_PLAN_PATH).once('value');
+  const plan = planSnap.val() || {};
+  const today = new Date().toLocaleString('en-GB', { weekday: 'long' });
+  const todayExercises = plan[today] || [];
+  res.json({ day: today, exercises: todayExercises });
+});
+
+// === POST /exercise/complete ===
+router.post('/exercise/complete', async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Exercise name required' });
+
+  const planSnap = await db.ref(EXERCISE_PLAN_PATH).once('value');
+  const plan = planSnap.val() || {};
+
+  const today = new Date();
+  const dayName = today.toLocaleString('en-GB', { weekday: 'long' });
+  const todayDate = today.toISOString().split('T')[0];
+  const exercises = plan[dayName] || [];
+
+  const exercise = exercises.find((e) => e.name === name);
+  if (!exercise) return res.status(404).json({ error: 'Exercise not found for today' });
+
+  exercise.done = true;
+  await db.ref(`${EXERCISE_PLAN_PATH}/${dayName}`).set(exercises);
+
+  // Check if all done
+  const allDone = exercises.every((e) => e.done);
+  if (allDone) {
+    const habitsSnap = await db.ref(HABITS_PATH).once('value');
+    const habits = habitsSnap.val() || [];
+    let todayEntry = habits.find((h) => h.date === todayDate);
+    if (!todayEntry) {
+      todayEntry = { date: todayDate, habits: { ...defaultHabits } };
+      habits.push(todayEntry);
     }
+    todayEntry.habits.workout = true;
+    await db.ref(HABITS_PATH).set(habits);
+  }
 
-    res.json({ message: 'Weekly activity marked as done!', activityId: weekly.activityId });
+  // Update workout log
+  const weekStart = getStartOfWeek(today);
+  const logSnap = await db.ref(WORKOUT_LOG_PATH).once('value');
+  const log = logSnap.val() || [];
+
+  let thisWeek = log.find((w) => w.weekStart === weekStart);
+  if (!thisWeek) {
+    thisWeek = {
+      weekStart,
+      days: {
+        Monday: [], Tuesday: [], Wednesday: [],
+        Thursday: [], Friday: [], Saturday: [], Sunday: []
+      }
+    };
+    log.push(thisWeek);
+  }
+
+  if (!thisWeek.days[dayName].includes(name)) {
+    thisWeek.days[dayName].push(name);
+  }
+
+  await db.ref(WORKOUT_LOG_PATH).set(log);
+  res.json({ message: `'${name}' marked as done`, allDone });
 });
 
-const exercisePlanFile = './data/exercisePlan.json';
-const loadExercisePlan = () => JSON.parse(fs.readFileSync(exercisePlanFile, 'utf8'));
-const saveExercisePlan = (data) => fs.writeFileSync(exercisePlanFile, JSON.stringify(data, null, 2));
+// === POST /exercise/reset ===
+router.post('/exercise/reset', async (req, res) => {
+  const planSnap = await db.ref(EXERCISE_PLAN_PATH).once('value');
+  const plan = planSnap.val() || {};
 
-// GET: today's planned exercises
-router.get('/exercise/today', (req, res) => {
-    const plan = loadExercisePlan();
-    const today = new Date().toLocaleString('en-GB', { weekday: 'long' });
-    const todayExercises = plan[today] || [];
-    res.json({ day: today, exercises: todayExercises });
+  for (let day in plan) {
+    plan[day] = plan[day].map((e) => ({ ...e, done: false }));
+  }
+
+  await db.ref(EXERCISE_PLAN_PATH).set(plan);
+  res.json({ message: 'All exercises reset for the week' });
 });
 
-// POST: mark an exercise as done
-router.post('/exercise/complete', (req, res) => {
-    const { name } = req.body;
-    if (!name) return res.status(400).json({ error: 'Exercise name required' });
-
-    const plan = loadExercisePlan();
-    const today = new Date();
-    const dayName = today.toLocaleString('en-GB', { weekday: 'long' });
-    const todayDate = today.toISOString().split('T')[0];
-    const exercises = plan[dayName] || [];
-
-    const exercise = exercises.find(e => e.name === name);
-    if (!exercise) return res.status(404).json({ error: 'Exercise not found for today' });
-
-    exercise.done = true;
-    saveExercisePlan(plan);
-
-    // Update habit tracker if all are done
-    const allDone = exercises.every(e => e.done);
-    if (allDone) {
-        const habits = loadHabits();
-        let todayEntry = habits.find(h => h.date === todayDate);
-        if (!todayEntry) {
-            todayEntry = { date: todayDate, habits: { ...defaultHabits } };
-            habits.push(todayEntry);
-        }
-        todayEntry.habits.workout = true;
-        saveHabits(habits);
-    }
-
-    // Log in workout log
-    const weekStart = getStartOfWeek(today);
-    const log = loadWorkoutLog();
-    let thisWeek = log.find(w => w.weekStart === weekStart);
-
-    if (!thisWeek) {
-        thisWeek = {
-            weekStart,
-            days: {
-                Monday: [], Tuesday: [], Wednesday: [],
-                Thursday: [], Friday: [], Saturday: [], Sunday: []
-            }
-        };
-        log.push(thisWeek);
-    }
-
-    if (!thisWeek.days[dayName].includes(name)) {
-        thisWeek.days[dayName].push(name);
-        saveWorkoutLog(log);
-    }
-
-    res.json({ message: `'${name}' marked as done`, allDone });
+// === GET /exercise/log ===
+router.get('/exercise/log', async (req, res) => {
+  const logSnap = await db.ref(WORKOUT_LOG_PATH).once('value');
+  res.json(logSnap.val() || []);
 });
-
-
-// POST: reset all exercises for the new week
-router.post('/exercise/reset', (req, res) => {
-    const plan = loadExercisePlan();
-
-    for (let day of Object.keys(plan)) {
-        plan[day] = plan[day].map(e => ({ ...e, done: false }));
-    }
-
-    saveExercisePlan(plan);
-    res.json({ message: 'All exercises reset for the week' });
-});
-
-router.get('/exercise/log', (req, res) => {
-    const log = loadWorkoutLog();
-    res.json(log);
-});
-
 
 module.exports = router;

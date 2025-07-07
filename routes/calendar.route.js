@@ -1,12 +1,13 @@
-// routes/calendar.route.js
 const express = require('express');
 const { google } = require('googleapis');
-const fs = require('fs');
 const dotenv = require('dotenv');
+const db = require('../firebase'); // Adjust path if needed
 
 dotenv.config();
 
 const router = express.Router();
+
+const TOKEN_PATH = 'google/tokens';
 
 // Setup OAuth2
 const oAuth2Client = new google.auth.OAuth2(
@@ -31,7 +32,10 @@ router.get('/oauth2callback', async (req, res) => {
   try {
     const { tokens } = await oAuth2Client.getToken(code);
     oAuth2Client.setCredentials(tokens);
-    fs.writeFileSync('tokens.json', JSON.stringify(tokens));
+
+    // Save tokens to Firebase
+    await db.ref(TOKEN_PATH).set(tokens);
+
     res.send('Login successful! You can now close this tab.');
   } catch (err) {
     console.error('Error during OAuth callback:', err);
@@ -41,18 +45,23 @@ router.get('/oauth2callback', async (req, res) => {
 
 router.get('/today', async (req, res) => {
   try {
-    const tokens = JSON.parse(fs.readFileSync('tokens.json'));
+    const tokenSnapshot = await db.ref(TOKEN_PATH).once('value');
+    const tokens = tokenSnapshot.val();
+
+    if (!tokens) {
+      return res.status(401).json({ error: 'User not authenticated. Please log in first.' });
+    }
+
     oAuth2Client.setCredentials(tokens);
 
     // Refresh token if needed
     await oAuth2Client.getAccessToken();
 
-    // Save the refreshed access token
-    const newTokens = oAuth2Client.credentials;
-    fs.writeFileSync('tokens.json', JSON.stringify(newTokens, null, 2));
+    // Save updated tokens to Firebase
+    await db.ref(TOKEN_PATH).set(oAuth2Client.credentials);
 
     // Optional: Confirm user
-    const info = await oAuth2Client.getTokenInfo(newTokens.access_token);
+    const info = await oAuth2Client.getTokenInfo(oAuth2Client.credentials.access_token);
     console.log('✅ Token valid for user:', info.email);
 
     const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
@@ -88,9 +97,5 @@ router.get('/today', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch events' });
   }
 });
-
-
-
-
 
 module.exports = router;
