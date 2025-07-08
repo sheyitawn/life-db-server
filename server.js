@@ -10,6 +10,7 @@ const timelineRoutes = require('./routes/timeline.route');
 const calendarRoutes = require('./routes/calendar.route');
 const habitsRoutes = require('./routes/habits.route');
 const weighinRoutes = require('./routes/weighin.route');
+const fastingRoutes = require('./routes/fasting.route');
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use('/timeline', timelineRoutes);
 app.use('/calendar', calendarRoutes);
 app.use('/habits', habitsRoutes);
 app.use('/weighin', weighinRoutes);
+app.use('/fasting', fastingRoutes);
 
 
 

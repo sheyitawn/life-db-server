@@ -9,7 +9,7 @@ const WEEKLY_ACTIVITY_PATH = 'weeklyActivity';
 const EXERCISE_PLAN_PATH = 'exercisePlan';
 const WORKOUT_LOG_PATH = 'workoutLog';
 
-const defaultHabits = { read: false, meditate: false, workout: false, journal: false };
+const defaultHabits = { water_1l: false, outdoor_walk: false, workout: false, weigh_in: false };
 
 const getStartOfWeek = (date = new Date()) => {
   const d = new Date(date);
@@ -127,21 +127,19 @@ router.post('/exercise/complete', async (req, res) => {
   exercise.done = true;
   await db.ref(`${EXERCISE_PLAN_PATH}/${dayName}`).set(exercises);
 
-  // Check if all done
+  // ✅ Check if all exercises for today are done
   const allDone = exercises.every((e) => e.done);
+
   if (allDone) {
-    const habitsSnap = await db.ref(HABITS_PATH).once('value');
-    const habits = habitsSnap.val() || [];
-    let todayEntry = habits.find((h) => h.date === todayDate);
-    if (!todayEntry) {
-      todayEntry = { date: todayDate, habits: { ...defaultHabits } };
-      habits.push(todayEntry);
-    }
+    const habitsRef = db.ref(`${HABITS_PATH}/${todayDate}`);
+    const todaySnap = await habitsRef.once('value');
+    const todayEntry = todaySnap.val() || { date: todayDate, habits: { ...defaultHabits } };
+
     todayEntry.habits.workout = true;
-    await db.ref(HABITS_PATH).set(habits);
+    await habitsRef.set(todayEntry);
   }
 
-  // Update workout log
+  // ✅ Log in workoutLog
   const weekStart = getStartOfWeek(today);
   const logSnap = await db.ref(WORKOUT_LOG_PATH).once('value');
   const log = logSnap.val() || [];
@@ -165,6 +163,7 @@ router.post('/exercise/complete', async (req, res) => {
   await db.ref(WORKOUT_LOG_PATH).set(log);
   res.json({ message: `'${name}' marked as done`, allDone });
 });
+
 
 // === POST /exercise/reset ===
 router.post('/exercise/reset', async (req, res) => {

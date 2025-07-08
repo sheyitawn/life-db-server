@@ -1,27 +1,25 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../firebase');
+const { getData, setData, updateData } = require('../utils/firebaseUtils');
 
 const defaultHabits = {
-  read: false,
-  meditate: false,
+  water_1l: false,
+  outdoor_walk: false,
   workout: false,
-  journal: false
+  weigh_in: false
 };
 
 // === GET habits for today ===
 router.get('/', async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
-  const habitsRef = db.ref(`habits/${today}`);
+  const path = `habits/${today}`;
 
   try {
-    const snapshot = await habitsRef.once('value');
-    let data = snapshot.val();
+    let data = await getData(path);
 
     if (!data) {
-      // If not found, create new entry with defaultHabits
-      await habitsRef.set({ date: today, habits: defaultHabits });
       data = { date: today, habits: defaultHabits };
+      await setData(path, data);
     }
 
     res.json(data);
@@ -39,11 +37,10 @@ router.post('/toggle', async (req, res) => {
     return res.status(400).json({ error: 'Date and habitKey are required.' });
   }
 
-  const habitRef = db.ref(`habits/${date}`);
+  const path = `habits/${date}`;
 
   try {
-    const snapshot = await habitRef.once('value');
-    const data = snapshot.val();
+    const data = await getData(path);
 
     if (!data || !data.habits) {
       return res.status(404).json({ error: `No entry found for ${date}.` });
@@ -54,7 +51,7 @@ router.post('/toggle', async (req, res) => {
       [habitKey]: !data.habits[habitKey]
     };
 
-    await habitRef.update({ habits: updatedHabits });
+    await updateData(path, { habits: updatedHabits });
 
     res.json({ message: `Toggled ${habitKey}`, habits: updatedHabits });
   } catch (err) {
@@ -75,9 +72,8 @@ router.get('/weekly', async (req, res) => {
   try {
     const results = await Promise.all(
       pastWeekDates.map(async (date) => {
-        const snapshot = await db.ref(`habits/${date}`).once('value');
-        const entry = snapshot.val();
-        return entry || { date, habits: { ...defaultHabits } };
+        const data = await getData(`habits/${date}`);
+        return data || { date, habits: { ...defaultHabits } };
       })
     );
 
