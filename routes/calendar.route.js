@@ -9,6 +9,11 @@ const router = express.Router();
 
 const TOKEN_PATH = 'google/tokens';
 
+console.log('🍅CLIENT_ID:', process.env.CLIENT_ID);
+console.log('🍅CLIENT_SECRET:', process.env.CLIENT_SECRET);
+console.log('🍅TEST:', process.env.CUM);
+
+
 // Setup OAuth2
 const oAuth2Client = new google.auth.OAuth2(
   process.env.CLIENT_ID,
@@ -49,28 +54,30 @@ router.get('/today', async (req, res) => {
     const tokens = tokenSnapshot.val();
 
     if (!tokens) {
-      return res.status(401).json({ error: 'User not authenticated. Please log in first.' });
+      return res.status(401).json({ error: 'not_authenticated' });
     }
 
     oAuth2Client.setCredentials(tokens);
 
-    // Refresh token if needed
-    await oAuth2Client.getAccessToken();
+    // Try to refresh the token
+    try {
+      await oAuth2Client.getAccessToken();
+    } catch (err) {
+      if (err.response?.data?.error === 'invalid_grant') {
+        return res.status(401).json({ error: 'expired_token' });
+      } else {
+        throw err;
+      }
+    }
 
-    // Save updated tokens to Firebase
+    // Proceed as normal
     await db.ref(TOKEN_PATH).set(oAuth2Client.credentials);
-
-    // Optional: Confirm user
-    const info = await oAuth2Client.getTokenInfo(oAuth2Client.credentials.access_token);
-    console.log('✅ Token valid for user:', info.email);
 
     const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
 
     const now = new Date();
     const start = new Date(now.setHours(0, 0, 0, 0)).toISOString();
     const end = new Date(now.setHours(23, 59, 59, 999)).toISOString();
-
-    console.log('Fetching events between:', start, 'and', end);
 
     const result = await calendar.events.list({
       calendarId: 'primary',
@@ -89,13 +96,10 @@ router.get('/today', async (req, res) => {
 
     res.json(events);
   } catch (err) {
-    console.error('❌ Failed to fetch calendar events:', {
-      message: err.message,
-      response: err.response?.data,
-      stack: err.stack
-    });
-    res.status(500).json({ error: 'Failed to fetch events' });
+    console.error('Calendar fetch failed:', err.message);
+    res.status(500).json({ error: 'calendar_fetch_error' });
   }
 });
+
 
 module.exports = router;

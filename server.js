@@ -1,6 +1,8 @@
+require('dotenv').config({ path: __dirname + '/../.env' });
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+
 
 const adventureRoutes = require('./routes/adventures.route');
 const goalRoutes = require('./routes/daily.route');
@@ -32,5 +34,5 @@ app.use('/fasting', fastingRoutes);
 
 const PORT = 3001;
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`🏃 Server running on http://localhost:${PORT}!`);
 });
