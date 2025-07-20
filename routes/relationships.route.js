@@ -170,4 +170,37 @@ router.post('/birthdays/:id/present', async (req, res) => {
     }
 });
 
+// POST /relationships/add
+router.post('/add', async (req, res) => {
+    const { name, birthday, checkin_freq, present } = req.body;
+
+    if (!name || !birthday || !checkin_freq) {
+        return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    try {
+        const ref = db.ref('relationships');
+        const newRef = ref.push(); // Auto-generates a unique key
+        const id = newRef.key;
+
+        const newRelationship = {
+            id,
+            name,
+            birthday,
+            checkin_freq,
+            present: !!present,
+            // got_present: !!got_present,
+            last_checkin: new Date().toISOString(),
+        };
+
+        await newRef.set(newRelationship);
+
+        res.status(201).json({ message: 'Relationship added successfully', relationship: newRelationship });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to add relationship' });
+    }
+});
+
+
 module.exports = router;

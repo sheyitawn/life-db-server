@@ -41,7 +41,7 @@ router.post('/', async (req, res) => {
       habits.push(todayEntry);
     }
 
-    todayEntry.habits[weigh_in] = true;
+    todayEntry.habits["weigh_in"] = true;
 
     const habitIndex = habits.findIndex((h) => h.date === today);
     if (habitIndex !== -1) {
@@ -69,5 +69,50 @@ router.get('/', async (req, res) => {
     res.status(500).json({ error: 'Failed to load weight data' });
   }
 });
+
+// === GET /weighin/latest ===
+router.get('/latest', async (req, res) => {
+  try {
+    const weights = await fetchAsArray('weights'); // ✅ reads from correct key
+
+    if (!weights || weights.length === 0) {
+      return res.status(404).json({ error: 'No weigh-in data found' });
+    }
+
+    // Sort and get latest
+    const latest = weights
+      .map(entry => ({
+        ...entry,
+        timestamp: new Date(entry.date).getTime()
+      }))
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+    const now = Date.now();
+    const diffMs = now - latest.timestamp;
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+
+    let timeAgo = '';
+    if (diffMinutes < 1) {
+      timeAgo = 'just now';
+    } else if (diffMinutes < 60) {
+      timeAgo = `${diffMinutes} min ago`;
+    } else {
+      const hours = Math.floor(diffMinutes / 60);
+      const mins = diffMinutes % 60;
+      timeAgo = `${hours}h ${mins}m ago`;
+    }
+
+    res.json({
+      weight: latest.weight,
+      date: latest.date,
+      timeAgo,
+    });
+  } catch (err) {
+    console.error('Firebase Error:', err);
+    res.status(500).json({ error: 'Failed to fetch latest weigh-in' });
+  }
+});
+
+
 
 module.exports = router;

@@ -9,9 +9,9 @@ const router = express.Router();
 
 const TOKEN_PATH = 'google/tokens';
 
-console.log('🍅CLIENT_ID:', process.env.CLIENT_ID);
-console.log('🍅CLIENT_SECRET:', process.env.CLIENT_SECRET);
-console.log('🍅TEST:', process.env.CUM);
+// console.log('🍅CLIENT_ID:', process.env.CLIENT_ID);
+// console.log('🍅CLIENT_SECRET:', process.env.CLIENT_SECRET);
+// console.log('🍅TEST:', process.env.CUM);
 
 
 // Setup OAuth2
