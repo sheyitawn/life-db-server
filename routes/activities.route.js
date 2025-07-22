@@ -9,7 +9,7 @@ const WEEKLY_ACTIVITY_PATH = 'weeklyActivity';
 const EXERCISE_PLAN_PATH = 'exercisePlan';
 const WORKOUT_LOG_PATH = 'workoutLog';
 
-const defaultHabits = { water_1l: false, outdoor_walk: false, workout: false, weigh_in: false };
+const defaultHabits = { water_1l: false, outdoor_walk: false, treadmill_30m: false, workout: false, weigh_in: false };
 
 const getStartOfWeek = (date = new Date()) => {
   const d = new Date(date);
