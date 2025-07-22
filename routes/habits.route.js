@@ -2,9 +2,11 @@ const express = require('express');
 const router = express.Router();
 const { getData, setData, updateData } = require('../utils/firebaseUtils');
 
+// Default habits structure
 const defaultHabits = {
   water_1l: false,
   outdoor_walk: false,
+  treadmill_30m: false,
   workout: false,
   weigh_in: false
 };
@@ -18,8 +20,9 @@ router.get('/', async (req, res) => {
     let data = await getData(path);
 
     if (!data) {
-      data = { date: today, habits: defaultHabits };
-      await setData(path, data);
+      const newData = { date: today, habits: { ...defaultHabits } };
+      await setData(path, newData);
+      data = newData;
     }
 
     res.json(data);
@@ -29,33 +32,41 @@ router.get('/', async (req, res) => {
   }
 });
 
-// === POST /toggle habit ===
+// === POST /toggle habit (for any date) ===
 router.post('/toggle', async (req, res) => {
   const { date, habitKey } = req.body;
 
   if (!date || !habitKey) {
-    return res.status(400).json({ error: 'Date and habitKey are required.' });
+    return res.status(400).json({ error: 'Both "date" and "habitKey" are required.' });
   }
 
   const path = `habits/${date}`;
 
   try {
-    const data = await getData(path);
+    let data = await getData(path);
 
-    if (!data || !data.habits) {
-      return res.status(404).json({ error: `No entry found for ${date}.` });
+    if (!data) {
+      // Create new day if it doesn't exist
+      data = {
+        date,
+        habits: { ...defaultHabits, [habitKey]: true } // toggle to true
+      };
+      await setData(path, data);
+    } else {
+      const currentValue = !!data.habits?.[habitKey];
+      const updatedHabits = {
+        ...defaultHabits,
+        ...data.habits,
+        [habitKey]: !currentValue
+      };
+
+      await updateData(path, { habits: updatedHabits });
+      data.habits = updatedHabits;
     }
 
-    const updatedHabits = {
-      ...data.habits,
-      [habitKey]: !data.habits[habitKey]
-    };
-
-    await updateData(path, { habits: updatedHabits });
-
-    res.json({ message: `Toggled ${habitKey}`, habits: updatedHabits });
+    res.json({ message: `Toggled "${habitKey}" on ${date}`, habits: data.habits });
   } catch (err) {
-    console.error('Toggle error:', err);
+    console.error('Error toggling habit:', err);
     res.status(500).json({ error: 'Error toggling habit' });
   }
 });
@@ -72,7 +83,8 @@ router.get('/weekly', async (req, res) => {
   try {
     const results = await Promise.all(
       pastWeekDates.map(async (date) => {
-        const data = await getData(`habits/${date}`);
+        const path = `habits/${date}`;
+        const data = await getData(path);
         return data || { date, habits: { ...defaultHabits } };
       })
     );
