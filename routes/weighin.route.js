@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require('../firebase');
 const { fetchAsArray } = require('../utils/firebaseUtils');
 
-const defaultHabits = { water_1l: false, outdoor_walk: false, workout: false, weigh_in: false };
+const defaultHabits = { water_1l: false, outdoor_walk: false, treadmill_30m: false, workout: false, weigh_in: false };
 
 
 // === POST /weighin ===
