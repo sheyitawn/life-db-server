@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { getData, setData, updateData } = require('../utils/firebaseUtils');
+const db = require('../firebase');
 
-// Default habits structure
 const defaultHabits = {
   water_1l: false,
   outdoor_walk: false,
@@ -14,62 +14,91 @@ const defaultHabits = {
 // === GET habits for today ===
 router.get('/', async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
-  const path = `habits/${today}`;
 
   try {
-    let data = await getData(path);
+    let habits = await getData('habits') || [];
 
-    if (!data) {
-      const newData = { date: today, habits: { ...defaultHabits } };
-      await setData(path, newData);
-      data = newData;
+    // Convert to array if it's an object (like from Firebase)
+    if (!Array.isArray(habits)) {
+      habits = Object.values(habits);
     }
 
-    res.json(data);
+    // Check if there's already an entry for today
+    const existing = habits.find((entry) => entry.date === today);
+    if (existing) return res.json(existing);
+
+    // Create a new habit entry
+    const newEntry = { date: today, habits: { ...defaultHabits } };
+
+    // Save using the next numeric index
+    const newIndex = habits.length;
+    await db.ref(`habits/${newIndex}`).set(newEntry);
+
+    res.json(newEntry);
   } catch (err) {
-    console.error('Error fetching today\'s habits:', err);
-    res.status(500).json({ error: 'Error fetching habits' });
+    console.error("Error fetching or creating today's habits:", err);
+    res.status(500).json({ error: "Error fetching today's habits" });
   }
 });
 
+
+
+
+
 // === POST /toggle habit (for any date) ===
 router.post('/toggle', async (req, res) => {
-  const { date, habitKey } = req.body;
+  let { date, habitKey } = req.body;
 
   if (!date || !habitKey) {
     return res.status(400).json({ error: 'Both "date" and "habitKey" are required.' });
   }
 
-  const path = `habits/${date}`;
+  try {
+    date = new Date(date).toISOString().split('T')[0];
+  } catch {
+    return res.status(400).json({ error: 'Invalid date format.' });
+  }
 
   try {
-    let data = await getData(path);
+    let habits = await getData('habits') || [];
 
-    if (!data) {
-      // Create new day if it doesn't exist
-      data = {
+    // Ensure habits is an array
+    if (!Array.isArray(habits)) {
+      habits = Object.values(habits);
+    }
+
+    // Find entry index by date
+    const index = habits.findIndex(h => h.date === date);
+
+    if (index === -1) {
+      // No entry found – create new
+      const newEntry = {
         date,
-        habits: { ...defaultHabits, [habitKey]: true } // toggle to true
+        habits: { ...defaultHabits, [habitKey]: true }
       };
-      await setData(path, data);
+      const newIndex = habits.length;
+      await setData(`habits/${newIndex}`, newEntry);
+      return res.json({ message: `Created and toggled "${habitKey}" on ${date}`, habits: newEntry.habits });
     } else {
-      const currentValue = !!data.habits?.[habitKey];
+      // Entry exists – toggle habit
+      const entry = habits[index];
+      const currentValue = !!entry.habits?.[habitKey];
       const updatedHabits = {
         ...defaultHabits,
-        ...data.habits,
+        ...entry.habits,
         [habitKey]: !currentValue
       };
 
-      await updateData(path, { habits: updatedHabits });
-      data.habits = updatedHabits;
+      await updateData(`habits/${index}`, { habits: updatedHabits });
+      return res.json({ message: `Toggled "${habitKey}" on ${date}`, habits: updatedHabits });
     }
-
-    res.json({ message: `Toggled "${habitKey}" on ${date}`, habits: data.habits });
   } catch (err) {
     console.error('Error toggling habit:', err);
     res.status(500).json({ error: 'Error toggling habit' });
   }
 });
+
+
 
 // === GET last 7 days of habits ===
 router.get('/weekly', async (req, res) => {
@@ -81,13 +110,18 @@ router.get('/weekly', async (req, res) => {
   });
 
   try {
-    const results = await Promise.all(
-      pastWeekDates.map(async (date) => {
-        const path = `habits/${date}`;
-        const data = await getData(path);
-        return data || { date, habits: { ...defaultHabits } };
-      })
-    );
+    let habits = await getData('habits') || [];
+
+    // Convert to array if it's an object (like from Firebase)
+    if (!Array.isArray(habits)) {
+      habits = Object.values(habits);
+    }
+
+    // Filter only entries from the past 7 days
+    const results = pastWeekDates.map(date => {
+      const entry = habits.find(h => h.date === date);
+      return entry || { date, habits: { ...defaultHabits } };
+    });
 
     res.json(results);
   } catch (err) {
@@ -95,5 +129,6 @@ router.get('/weekly', async (req, res) => {
     res.status(500).json({ error: 'Error loading weekly habits' });
   }
 });
+
 
 module.exports = router;

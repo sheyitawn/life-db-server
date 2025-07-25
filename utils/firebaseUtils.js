@@ -6,6 +6,9 @@ const getData = async (path) => {
 };
 
 const setData = async (path, value) => {
+  if (Array.isArray(value)) {
+    throw new Error(`❌ Tried to set array at "${path}". Firebase prefers key-based objects.`);
+  }
   await db.ref(path).set(value);
 };
 
